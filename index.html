@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動式世界地圖 (旅行足跡) V23.4 - 全螢幕版</title>
+    
+    <!-- 步驟 1: 引入字體與設定樣式 (CSS) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- 基本樣式 --- */
+        html, body {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #a7d1f7;
+        }
+
+        /* --- 主標題樣式 --- */
+        .main-title {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #ffffff;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            margin: 0;
+            padding: 0.5rem 1.5rem;
+            background-color: rgba(29, 78, 216, 0.5);
+            border-radius: 12px;
+            backdrop-filter: blur(5px);
+        }
+
+        /* --- 地圖容器 --- */
+        #map-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e2e8f0;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            animation: spin 1s linear infinite;
+            z-index: 20;
+        }
+
+        @keyframes spin {
+            to {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+
+        /* --- 地圖路徑樣式 --- */
+        .country, .state {
+            fill: #e5e7eb;
+            stroke: #64748b;
+            transition: fill 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        .country { stroke-width: 0.5px; }
+        .state { stroke-width: 0.2px; }
+        .country:hover, .state:hover { fill: #9ca3af; }
+        .country.selected, .state.selected {
+            fill: #3b82f6;
+            stroke: #ffffff;
+            stroke-width: 0.75px;
+        }
+
+        /* --- V23.4 更新: 浮動卡片區塊樣式 --- */
+        #cards-scroll-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            /* V23.4 修改: 預設為收合高度 */
+            height: 58px; 
+            backdrop-filter: blur(2px);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.15);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* V23.4 新增: 隱藏超出的內容 */
+            /* V23.4 新增: 高度變化動畫 */
+            transition: height 0.3s ease-in-out;
+        }
+
+        /* V23.4 新增: 滑鼠懸停時展開 */
+        #cards-scroll-container:hover {
+            height: 33.33vh;
+        }
+
+        /* V23.3 新增: 洲名導覽列容器 */
+        #continent-nav-wrapper {
+            padding: 0.75rem 1.5rem;
+            flex-shrink: 0; 
+            border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+        }
+        
+        #continent-nav {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap; 
+            gap: 0.5rem;
+        }
+        
+        /* V23.3 新增: 洲名頁籤樣式 */
+        .continent-tab {
+            padding: 0.4rem 1rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #334155;
+            background-color: rgba(255, 255, 255, 0.6);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+
+        .continent-tab:hover, .continent-tab.active {
+            background-color: #ffffff;
+            color: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        /* V23.4 更新: 卡片顯示區 */
+        #card-display-area {
+            flex-grow: 1; 
+            overflow-y: auto; 
+            padding: 0 1.5rem 1rem;
+            /* V23.4 新增: 預設透明，延遲淡入 */
+            opacity: 0;
+            transition: opacity 0.2s 0.1s ease-in-out;
+        }
+
+        /* V23.4 新增: 容器展開時，卡片區淡入 */
+        #cards-scroll-container:hover #card-display-area {
+            opacity: 1;
+        }
+
+
+        /* V23.3 修改: 卡片群組現在由 JS 控制顯示 */
+        .continent-group {
+            display: none; 
+            padding-top: 1rem;
+        }
+        .continent-group.visible {
+            display: block; 
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+            gap: 0.75rem;
+        }
+
+        /* --- 國家卡片樣式 --- */
+        .country-card {
+            display: flex;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(4px);
+            border-radius: 8px;
+            padding: 0.7rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+            border: 1px solid rgba(226, 232, 240, 0.7);
+        }
+
+        .country-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+            background-color: rgba(255, 255, 255, 0.9);
+        }
+
+        .country-card img {
+            width: 32px;
+            height: 21px;
+            object-fit: cover;
+            border-radius: 3px;
+            margin-right: 0.75rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            background-color: #f0f4f8; 
+        }
+
+        .country-card-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .country-card-info .name-zh {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: #1e293b;
+            white-space: nowrap;
+        }
+
+        .country-card-info .name-en {
+            font-size: 0.8rem;
+            color: #64748b;
+            white-space: nowrap;
+        }
+        
+        /* --- RWD 樣式 --- */
+        @media (max-width: 768px) {
+            .main-title {
+                font-size: 1.5rem;
+                padding: 0.4rem 1rem;
+                top: 15px;
+            }
+            #cards-scroll-container {
+                height: 60px; /* 手機版預設高度 */
+            }
+            #cards-scroll-container:hover {
+                 height: 40vh; /* 手機版展開高度 */
+            }
+            #continent-nav-wrapper, #card-display-area {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            .card-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map-container">
+        <div id="loader" class="loader"></div>
+    </div>
+    
+    <h1 class="main-title">旅行足跡</h1>
+    
+    <!-- V23.3 HTML 結構更新 -->
+    <div id="cards-scroll-container">
+        <div id="continent-nav-wrapper">
+            <div id="continent-nav">
+                <!-- 洲名頁籤將由 JS 動態生成於此 -->
+            </div>
+        </div>
+        <div id="card-display-area">
+            <div class="continent-group" id="group-asia">
+                <div class="card-grid" id="grid-asia"></div>
+            </div>
+            <div class="continent-group" id="group-europe">
+                <div class="card-grid" id="grid-europe"></div>
+            </div>
+            <div class="continent-group" id="group-americas">
+                <div class="card-grid" id="grid-americas"></div>
+            </div>
+            <div class="continent-group" id="group-oceania">
+                <div class="card-grid" id="grid-oceania"></div>
+            </div>
+            <div class="continent-group" id="group-africa">
+                <div class="card-grid" id="grid-africa"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            
+            const dataMap = { /* 資料內容與前版相同，此處省略 */ 
+                "Argentina": { en: "Argentina", zh: "阿根廷", code: "ar", continent: "americas" },"Australia": { en: "Australia", zh: "澳洲", code: "au", continent: "oceania" },"Brazil": { en: "Brazil", zh: "巴西", code: "br", continent: "americas" },"Canada": { en: "Canada", zh: "加拿大", code: "ca", continent: "americas" },"Cambodia": { en: "Cambodia", zh: "柬埔寨", code: "kh", continent: "asia" },"China": { en: "China", zh: "中國", code: "cn", continent: "asia" },"Greece": { en: "Greece", zh: "希臘", code: "gr", continent: "europe" },"Guam": { en: "Guam", zh: "關島", code: "gu", continent: "oceania" },"Iceland": { en: "Iceland", zh: "冰島", code: "is", continent: "europe" },"Indonesia": { en: "Indonesia", zh: "印尼", code: "id", continent: "asia" },"Japan": { en: "Japan", zh: "日本", code: "jp", continent: "asia" },"Malaysia": { en: "Malaysia", zh: "馬來西亞", code: "my", continent: "asia" },"New Zealand": { en: "New Zealand", zh: "紐西蘭", code: "nz", continent: "oceania" },"Peru": { en: "Peru", zh: "秘魯", code: "pe", continent: "americas", url: "https://sites.google.com/view/peterhlovestravel/%E7%A7%98%E9%AD%AF" },"Philippines": { en: "Philippines", zh: "菲律賓", code: "ph", continent: "asia" },"Singapore": { en: "Singapore", zh: "新加坡", code: "sg", continent: "asia" },"South Korea": { en: "South Korea", zh: "南韓", code: "kr", continent: "asia" },"Taiwan": { en: "Taiwan", zh: "台灣", code: "tw", continent: "asia" },"Thailand": { en: "Thailand", zh: "泰國", code: "th", continent: "asia" },"United States of America": { en: "United States", zh: "美國", code: "us", continent: "americas" },"Vietnam": { en: "Vietnam", zh: "越南", code: "vn", continent: "asia" },"Hong Kong": { en: "Hong Kong", zh: "香港", code: "hk", continent: "asia" },"Macau": { en: "Macau", zh: "澳門", code: "mo", continent: "asia" },"Anhui": { en: "Anhui", zh: "安徽省", code: "cn-ah", continent: "asia" },"Beijing": { en: "Beijing", zh: "北京市", code: "cn-bj", continent: "asia" },"Chongqing": { en: "Chongqing", zh: "重慶市", code: "cn-cq", continent: "asia" },"Fujian": { en: "Fujian", zh: "福建省", code: "cn-fj", continent: "asia" },"Gansu": { en: "Gansu", zh: "甘肅省", code: "cn-gs", continent: "asia" },"Guangdong": { en: "Guangdong", zh: "廣東省", code: "cn-gd", continent: "asia" },"Guangxi": { en: "Guangxi", zh: "廣西壯族自治區", code: "cn-gx", continent: "asia" },"Guizhou": { en: "Guizhou", zh: "貴州省", code: "cn-gz", continent: "asia" },"Hainan": { en: "Hainan", zh: "海南省", code: "cn-hi", continent: "asia" },"Hebei": { en: "Hebei", zh: "河北省", code: "cn-he", continent: "asia" },"Heilongjiang": { en: "Heilongjiang", zh: "黑龍江省", code: "cn-hl", continent: "asia" },"Henan": { en: "Henan", zh: "河南省", code: "cn-ha", continent: "asia" },"Hubei": { en: "Hubei", zh: "湖北省", code: "cn-hb", continent: "asia" },"Hunan": { en: "Hunan", zh: "湖南省", code: "cn-hn", continent: "asia" },"Inner Mongolia": { en: "Inner Mongolia", zh: "內蒙古自治區", code: "cn-nm", continent: "asia" },"Jiangsu": { en: "Jiangsu", zh: "江蘇省", code: "cn-js", continent: "asia" },"Jiangxi": { en: "Jiangxi", zh: "江西省", code: "cn-jx", continent: "asia" },"Jilin": { en: "Jilin", zh: "吉林省", code: "cn-jl", continent: "asia" },"Liaoning": { en: "Liaoning", zh: "遼寧省", code: "cn-ln", continent: "asia" },"Ningxia": { en: "Ningxia", zh: "寧夏回族自治區", code: "cn-nx", continent: "asia" },"Qinghai": { en: "Qinghai", zh: "青海省", code: "cn-qh", continent: "asia" },"Shaanxi": { en: "Shaanxi", zh: "陝西省", code: "cn-sn", continent: "asia" },"Shandong": { en: "Shandong", zh: "山東省", code: "cn-sd", continent: "asia" },"Shanghai": { en: "Shanghai", zh: "上海市", code: "cn-sh", continent: "asia" },"Shanxi": { en: "Shanxi", zh: "山西省", code: "cn-sx", continent: "asia" },"Sichuan": { en: "Sichuan", zh: "四川省", code: "cn-sc", continent: "asia" },"Tianjin": { en: "Tianjin", zh: "天津市", code: "cn-tj", continent: "asia" },"Tibet": { en: "Tibet", zh: "西藏自治區", code: "cn-xz", continent: "asia" },"Xinjiang": { en: "Xinjiang", zh: "新疆維吾爾自治區", code: "cn-xj", continent: "asia" },"Yunnan": { en: "Yunnan", zh: "雲南省", code: "cn-yn", continent: "asia" },"Zhejiang": { en: "Zhejiang", zh: "浙江省", code: "cn-zj", continent: "asia" },"Alberta": { en: "Alberta", zh: "亞伯達省", code: "ca-ab", continent: "americas" },"British Columbia": { en: "British Columbia", zh: "不列顛哥倫比亞省", code: "ca-bc", continent: "americas" },"Manitoba": { en: "Manitoba", zh: "曼尼托巴省", code: "ca-mb", continent: "americas" },"New Brunswick": { en: "New Brunswick", zh: "新布藍茲維省", code: "ca-nb", continent: "americas" },"Newfoundland and Labrador": { en: "Newfoundland and Labrador", zh: "紐芬蘭與拉布拉多省", code: "ca-nl", continent: "americas" },"Nova Scotia": { en: "Nova Scotia", zh: "新斯科細亞省", code: "ca-ns", continent: "americas" },"Ontario": { en: "Ontario", zh: "安大略省", code: "ca-on", continent: "americas" },"Prince Edward Island": { en: "Prince Edward Island", zh: "愛德華王子島", code: "ca-pe", continent: "americas" },"Quebec": { en: "Quebec", zh: "魁北克省", code: "ca-qc", continent: "americas" },"Saskatchewan": { en: "Saskatchewan", zh: "薩克其萬省", code: "ca-sk", continent: "americas" },"Northwest Territories": { en: "Northwest Territories", zh: "西北地方", code: "ca-nt", continent: "americas" },"Nunavut": { en: "Nunavut", zh: "努納福特地區", code: "ca-nu", continent: "americas" },"Yukon": { en: "Yukon", zh: "育空地區", code: "ca-yt", continent: "americas" },"Alabama": { en: "Alabama", zh: "阿拉巴馬州", code: "us-al", continent: "americas" },"Alaska": { en: "Alaska", zh: "阿拉斯加州", code: "us-ak", continent: "americas" },"Arizona": { en: "Arizona", zh: "亞利桑那州", code: "us-az", continent: "americas" },"Arkansas": { en: "Arkansas", zh: "阿肯色州", code: "us-ar", continent: "americas" },"California": { en: "California", zh: "加州", code: "us-ca", continent: "americas" },"Colorado": { en: "Colorado", zh: "科羅拉多州", code: "us-co", continent: "americas" },"Connecticut": { en: "Connecticut", zh: "康乃狄克州", code: "us-ct", continent: "americas" },"Delaware": { en: "Delaware", zh: "德拉瓦州", code: "us-de", continent: "americas" },"Florida": { en: "Florida", zh: "佛羅里達州", code: "us-fl", continent: "americas" },"Georgia": { en: "Georgia", zh: "喬治亞州", code: "us-ga", continent: "americas" },"Hawaii": { en: "Hawaii", zh: "夏威夷州", code: "us-hi", continent: "americas" },"Idaho": { en: "Idaho", zh: "愛達荷州", code: "us-id", continent: "americas" },"Illinois": { en: "Illinois", zh: "伊利諾州", code: "us-il", continent: "americas" },"Indiana": { en: "Indiana", zh: "印第安納州", code: "us-in", continent: "americas" },"Iowa": { en: "Iowa", zh: "愛荷華州", code: "us-ia", continent: "americas" },"Kansas": { en: "Kansas", zh: "堪薩斯州", code: "us-ks", continent: "americas" },"Kentucky": { en: "Kentucky", zh: "肯塔基州", code: "us-ky", continent: "americas" },"Louisiana": { en: "Louisiana", zh: "路易斯安那州", code: "us-la", continent: "americas" },"Maine": { en: "Maine", zh: "緬因州", code: "us-me", continent: "americas" },"Maryland": { en: "Maryland", zh: "馬里蘭州", code: "us-md", continent: "americas" },"Massachusetts": { en: "Massachusetts", zh: "麻州", code: "us-ma", continent: "americas" },"Michigan": { en: "Michigan", zh: "密西根州", code: "us-mi", continent: "americas" },"Minnesota": { en: "Minnesota", zh: "明尼蘇達州", code: "us-mn", continent: "americas" },"Mississippi": { en: "Mississippi", zh: "密西西比州", code: "us-ms", continent: "americas" },"Missouri": { en: "Missouri", zh: "密蘇里州", code: "us-mo", continent: "americas" },"Montana": { en: "Montana", zh: "蒙大拿州", code: "us-mt", continent: "americas" },"Nebraska": { en: "Nebraska", zh: "內布拉斯加州", code: "us-ne", continent: "americas" },"Nevada": { en: "Nevada", zh: "內華達州", code: "us-nv", continent: "americas" },"New Hampshire": { en: "New Hampshire", zh: "新罕布夏州", code: "us-nh", continent: "americas" },"New Jersey": { en: "New Jersey", zh: "紐澤西州", code: "us-nj", continent: "americas" },"New Mexico": { en: "New Mexico", zh: "新墨西哥州", code: "us-nm", continent: "americas" },"New York": { en: "New York", zh: "紐約州", code: "us-ny", continent: "americas" },"North Carolina": { en: "North Carolina", zh: "北卡羅來納州", code: "us-nc", continent: "americas" },"North Dakota": { en: "North Dakota", zh: "北達科他州", code: "us-nd", continent: "americas" },"Ohio": { en: "Ohio", zh: "俄亥俄州", code: "us-oh", continent: "americas" },"Oklahoma": { en: "Oklahoma", zh: "奧克拉荷馬州", code: "us-ok", continent: "americas" },"Oregon": { en: "Oregon", zh: "奧勒岡州", code: "us-or", continent: "americas" },"Pennsylvania": { en: "Pennsylvania", zh: "賓州", code: "us-pa", continent: "americas" },"Rhode Island": { en: "Rhode Island", zh: "羅德島州", code: "us-ri", continent: "americas" },"South Carolina": { en: "South Carolina", zh: "南卡羅來納州", code: "us-sc", continent: "americas" },"South Dakota": { en: "South Dakota", zh: "南達科他州", code: "us-sd", continent: "americas" },"Tennessee": { en: "Tennessee", zh: "田納西州", code: "us-tn", continent: "americas" },"Texas": { en: "Texas", zh: "德州", code: "us-tx", continent: "americas" },"Utah": { en: "Utah", zh: "猶他州", code: "us-ut", continent: "americas" },"Vermont": { en: "Vermont", zh: "佛蒙特州", code: "us-vt", continent: "americas" },"Virginia": { en: "Virginia", zh: "維吉尼亞州", code: "us-va", continent: "americas" },"Washington": { en: "Washington", zh: "華盛頓州", code: "us-wa", continent: "americas" },"West Virginia": { en: "West Virginia", zh: "西維吉尼亞州", code: "us-wv", continent: "americas" },"Wisconsin": { en: "Wisconsin", zh: "威斯康辛州", code: "us-wi", continent: "americas" },"Wyoming": { en: "Wyoming", zh: "懷俄明州", code: "us-wy", continent: "americas" },"District of Columbia": { en: "Washington D.C.", zh: "華盛頓特區", code: "us-dc", continent: "americas" },
+            };
+
+            const loader = d3.select("#loader");
+            const mapContainer = d3.select("#map-container");
+            let width = window.innerWidth;
+            let height = window.innerHeight;
+
+            const projection = d3.geoMercator()
+                .scale(width / 2 / Math.PI * 0.8)
+                .center([0, 20])
+                .translate([width / 2, height / 2]);
+
+            const path = d3.geoPath().projection(projection);
+            const svg = mapContainer.append("svg")
+                .attr("width", width)
+                .attr("height", height);
+            const g = svg.append("g");
+
+            function getFeatureName(d) { /* ...函式內容不變... */ 
+                const p = d && d.properties ? d.properties : {};
+                if (p.PRENAME) return p.PRENAME;
+                if (p.name) {
+                    if (dataMap[p.name]) return p.name;
+                    const firstName = p.name.split(' ')[0];
+                    if (dataMap[firstName]) return firstName;
+                }
+                return "Unknown";
+            }
+
+            const urls = { /* ...URL內容不變... */ 
+                world: "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json",
+                us: "https://cdn.jsdelivr.net/npm/us-atlas@3.0.0/states-10m.json",
+                ca: "https://raw.githubusercontent.com/PeterH607037/my_map_data/refs/heads/main/canada_provinces.topo.json",
+                cn: "https://raw.githubusercontent.com/PeterH607037/my_map_data/refs/heads/main/china_provinces.topo.json"
+            };
+
+            Promise.all(Object.values(urls).map(url => d3.json(url))).then(([world, us, caTopo, cnTopo]) => {
+                const countriesToExclude = ["United States of America", "Canada", "China"];
+                const worldFeatures = topojson.feature(world, world.objects.countries).features.filter(d => !countriesToExclude.includes(d.properties.name));
+                
+                g.selectAll(".country")
+                    .data(worldFeatures).enter().append("path")
+                    .attr("class", "country").attr("d", path)
+                    .attr("data-name", d => getFeatureName(d)).on("click", handlePathClick);
+
+                const usFeatures = topojson.feature(us, us.objects.states).features;
+                const caKey = Object.keys(caTopo.objects)[0];
+                const caFeatures = topojson.feature(caTopo, caTopo.objects[caKey]).features;
+                const cnKey = Object.keys(cnTopo.objects)[0];
+                const cnFeatures = topojson.feature(cnTopo, cnTopo.objects[cnKey]).features;
+                const allStates = [...usFeatures, ...caFeatures, ...cnFeatures];
+
+                g.selectAll(".state")
+                    .data(allStates).enter().append("path")
+                    .attr("class", "state").attr("d", path)
+                    .attr("data-name", d => getFeatureName(d)).on("click", handlePathClick);
+
+                const visited = [ "Taiwan", "Japan", "Australia", "New Zealand", "Singapore", "Philippines", "Vietnam", "Thailand", "South Korea", "Canada", "Washington", "Oregon", "Iceland", "Greece", "Indonesia", "Hong Kong", "Macau", "Guam", "Cambodia", "Malaysia", "China", "Peru", "British Columbia", "Alberta", "Anhui", "Fujian", "Gansu", "Guangdong", "Guizhou", "Hubei", "Hunan", "Qinghai", "Shaanxi", "Shanghai", "Sichuan", "Tibet", "Yunnan", "Zhejiang" ];
+
+                // V23.3 修改: 在建立卡片後，才初始化洲名導覽列
+                visited.forEach(name => {
+                    if (dataMap[name]) {
+                        createCountryCard(name);
+                        const pathElement = g.selectAll(`[data-name="${name}"]`);
+                        if (!pathElement.empty()) {
+                            pathElement.classed("selected", true);
+                            pathElement.raise();
+                        }
+                    }
+                });
+                
+                initializeContinentNav(); // 呼叫新函式
+                
+                loader.style("display", "none");
+
+            }).catch(error => { /* ...錯誤處理不變... */ 
+                console.error("地圖資料載入失敗:", error);
+                loader.style("display", "none");
+                mapContainer.html('<p style="text-align:center; padding: 2rem; color: white;">地圖資料載入失敗，請稍後再試。</p>');
+            });
+
+            const zoom = d3.zoom().scaleExtent([1, 12]).translateExtent([[0, 0], [width, height]]).on("zoom", zoomed);
+            svg.call(zoom);
+            function zoomed(event) { g.attr("transform", event.transform); }
+            
+            window.addEventListener('resize', () => { /* ...視窗縮放處理不變... */ 
+                width = window.innerWidth;
+                height = window.innerHeight;
+                svg.attr("width", width).attr("height", height);
+                projection.scale(width / 2 / Math.PI * 0.8).translate([width / 2, height / 2]);
+                g.selectAll('path').attr('d', path);
+                zoom.translateExtent([[0, 0], [width, height]]);
+            });
+
+            const tooltip = d3.select("body").append("div") /* ...Tooltip 處理不變... */ 
+                .attr("class", "tooltip").style("position", "absolute").style("visibility", "hidden")
+                .style("background-color", "rgba(45, 55, 72, 0.9)").style("color", "#fff")
+                .style("padding", "8px 12px").style("border-radius", "6px").style("font-size", "14px")
+                .style("pointer-events", "none").style("line-height", "1.4").style("z-index", 200);
+
+            function handlePathClick(event, d) { /* ...點擊處理不變... */ 
+                const name = getFeatureName(d);
+                if (!name || !dataMap[name]) return; 
+                const clickedPath = d3.selectAll(`[data-name="${name}"]`);
+                const isSelected = clickedPath.classed("selected");
+                clickedPath.classed("selected", !isSelected); 
+                if (!isSelected) {
+                    clickedPath.raise();
+                    createCountryCard(name);
+                } else {
+                    removeCountryCard(name);
+                }
+            }
+
+            svg.on("mouseover", function(event) { /* ...滑鼠事件不變... */ 
+                if (event.target.tagName === 'path') {
+                    const d = d3.select(event.target).datum();
+                    const name = getFeatureName(d);
+                    const data = dataMap[name];
+                    if (!data) return;
+                    tooltip.style("visibility", "visible")
+                           .html(`${data.zh}<br><span style="color:#ccc; font-size: 12px;">${data.en}</span>`);
+                }
+            }).on("mousemove", function(event) {
+                tooltip.style("top", (event.pageY - 10) + "px")
+                       .style("left", (event.pageX + 10) + "px");
+            }).on("mouseout", function(event) {
+                 if (event.target.tagName === 'path') {
+                    tooltip.style("visibility", "hidden");
+                 }
+            });
+
+            function createCountryCard(name) { /* ...卡片建立函式不變... */ 
+                const data = dataMap[name];
+                if (!data || !data.continent) return;
+                const grid = document.getElementById('grid-' + data.continent);
+                if (!grid) return;
+                if (grid.querySelector(`[data-country-name="${name}"]`)) return;
+                
+                const card = document.createElement('div');
+                card.className = 'country-card';
+                card.dataset.countryName = name;
+                let flagCode = data.code;
+                if (flagCode) {
+                    const prefix = flagCode.substring(0, 2);
+                    if (['us', 'ca', 'cn', 'au'].includes(prefix)) {
+                        flagCode = prefix;
+                    }
+                }
+                card.innerHTML = `<img src="https://flagcdn.com/w80/${flagCode}.png" alt="${data.zh} Flag" loading="lazy" onerror="this.style.display='none'"><div class="country-card-info"><div class="name-zh">${data.zh}</div><div class="name-en">${data.en}</div></div>`;
+                card.addEventListener('click', () => {
+                    const targetUrl = data.url || `https://zh.wikipedia.org/wiki/${encodeURIComponent(data.zh)}`;
+                    window.open(targetUrl, '_blank');
+                });
+                card.addEventListener('mouseover', () => {
+                    const pathElement = g.selectAll(`[data-name="${name}"]`);
+                    if (!pathElement.empty() && pathElement.classed("selected")) {
+                       pathElement.raise();
+                       pathElement.transition().duration(150).style('fill', '#facc15').transition().duration(300).style('fill', '#3b82f6'); 
+                    }
+                });
+                grid.appendChild(card);
+            }
+
+            function removeCountryCard(name) { /* ...移除卡片函式不變... */ 
+                const data = dataMap[name];
+                if (!data || !data.continent) return;
+                const grid = document.getElementById('grid-' + data.continent);
+                const card = grid.querySelector(`[data-country-name="${name}"]`);
+                if (card) {
+                    card.remove();
+                }
+            }
+            
+            // --- V23.3 新增: 洲名導覽列互動邏輯 ---
+            function initializeContinentNav() {
+                const navContainer = document.getElementById('continent-nav');
+                const scrollContainer = document.getElementById('cards-scroll-container');
+                const groups = document.querySelectorAll('.continent-group');
+                const tabs = [];
+
+                // 定義洲名和順序
+                const continents = {
+                    asia: '亞洲',
+                    europe: '歐洲',
+                    americas: '美洲',
+                    oceania: '大洋洲',
+                    africa: '非洲'
+                };
+
+                // 清空現有導覽列
+                navContainer.innerHTML = '';
+
+                // 遍歷定義好的洲，建立頁籤
+                for (const id in continents) {
+                    // 只有當該洲有卡片時才建立頁籤
+                    const grid = document.getElementById(`grid-${id}`);
+                    if (grid && grid.children.length > 0) {
+                        const tab = document.createElement('div');
+                        tab.className = 'continent-tab';
+                        tab.textContent = continents[id];
+                        tab.dataset.continent = id;
+                        
+                        // 為頁籤加上滑鼠移入事件
+                        tab.addEventListener('mouseover', () => {
+                            // 顯示對應的卡片群組
+                            groups.forEach(group => {
+                                group.classList.toggle('visible', group.id === `group-${id}`);
+                            });
+                            // 更新頁籤的 active 狀態
+                            tabs.forEach(t => {
+                                t.classList.toggle('active', t === tab);
+                            });
+        
+                        });
+
+                        navContainer.appendChild(tab);
+                        tabs.push(tab);
+                    }
+                }
+
+                // 為整個下方容器加上滑鼠離開事件
+                scrollContainer.addEventListener('mouseleave', () => {
+                    // 隱藏所有卡片群組
+                    groups.forEach(group => {
+                        group.classList.remove('visible');
+                    });
+                    // 移除所有頁籤的 active 狀態
+                    tabs.forEach(t => {
+                        t.classList.remove('active');
+                    });
+                });
+            }
+        });
+    </script>
+
+</body>
+</html>
